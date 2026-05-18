@@ -91,9 +91,13 @@ did_int_staggered <- function(data, yname, time, id, cohort, exposure, g,
   names(pre)[2] <- ".Y_pre"
 
   # Container for results
-  rows <- list()
-  ifs  <- list()
-  k    <- 0L
+  rows     <- list()
+  ifs      <- list()    # per-cell influence-function vector
+  cell_ids <- list()    # per-cell unit IDs aligned to ifs[[k]]
+  k        <- 0L
+
+  # All unit IDs (for joint-IF aggregation: stack to this universe)
+  all_ids <- unique(data[[id]])
 
   for (c_val in cohorts) {
     for (t_val in times) {
@@ -109,6 +113,7 @@ did_int_staggered <- function(data, yname, time, id, cohort, exposure, g,
       Y_t  <- m[[yname]]
       Y_pre <- m[[".Y_pre"]]
       Z    <- as.data.frame(m[, covariates, drop = FALSE])
+      ids_t <- m[[id]]
       coords <- if (!is.null(coords_cols))
         as.matrix(m[, coords_cols, drop = FALSE]) else NULL
 
@@ -120,6 +125,7 @@ did_int_staggered <- function(data, yname, time, id, cohort, exposure, g,
       Ig <- as.integer(G_it[in_sm] == g)
       dY <- Y_t[in_sm] - Y_pre[in_sm]
       Z_sm <- Z[in_sm, , drop = FALSE]
+      ids_sm <- ids_t[in_sm]
       coords_sm <- if (!is.null(coords)) coords[in_sm, , drop = FALSE] else NULL
 
       # Skip cells with empty {W=1, G=g} or {W=0, G=g} subsets — these
@@ -160,7 +166,8 @@ did_int_staggered <- function(data, yname, time, id, cohort, exposure, g,
         n_at_g     = out$n_at_g,
         n_dropped  = out$n_dropped
       )
-      ifs[[k]] <- out$influence
+      ifs[[k]]      <- out$influence
+      cell_ids[[k]] <- ids_sm[out$keep_idx]   # IDs aligned to IF post-trim
     }
   }
 
@@ -171,25 +178,38 @@ did_int_staggered <- function(data, yname, time, id, cohort, exposure, g,
   rownames(per_cell) <- NULL
 
   # --- aggregation ---------------------------------------------------------
-  # Each cell has its own IF on its own sample. For aggregation we compute
-  # weighted averages of the cell estimates with cell sizes as weights; the
-  # SE for an aggregated mean is computed by stacking per-cell IF "summary
-  # contributions" (mean(IF) per cell scaled by n_cell). This is a
-  # conservative approximation; rigorous joint-IF inference across cells
-  # with overlapping samples is left to Phase 4 (and to Callaway-Sant'Anna-
-  # style "did" package literature).
+  # Joint-IF aggregation across cells that share units.
+  #
+  # Each cell estimate is tau_k = (1/n_k) sum_{i in S_M^k} psi_{k,i}.
+  # A weighted average theta = sum_k w_k * tau_k has the per-unit
+  # contribution h_i = sum_k w_k * (psi_{k,i} / n_k) * 1{i in S_M^k}.
+  # Treating units as independent (correct for iid sampling):
+  #   Var(theta) = sum_i Var(h_i) ≈ sum_i h_i^2
+  # No need to multiply by 1/n_universe because h_i is already the
+  # contribution to theta (an average), not a sum.
   agg_one <- function(idx, label) {
     if (length(idx) == 0) return(NULL)
     ests <- per_cell$estimate[idx]
-    ses  <- per_cell$se[idx]
     ns   <- per_cell$n_total[idx]
     w    <- ns / sum(ns)
     est_avg <- sum(w * ests)
-    # Variance assuming independent cells: sum(w^2 * se^2). Conservative
-    # because cells share units; correct full joint IF inference will come
-    # in a later release.
-    se_avg  <- sqrt(sum((w * ses)^2))
-    z       <- qnorm(1 - alpha / 2)
+
+    # Build per-unit contribution h_i across cells in this aggregate.
+    h <- numeric(length(all_ids))
+    names(h) <- as.character(all_ids)
+    for (j in seq_along(idx)) {
+      kk    <- idx[j]
+      psi_k <- ifs[[kk]] + per_cell$estimate[kk]   # un-centered DR signal
+      n_k   <- per_cell$n_total[kk]
+      ids_k <- as.character(cell_ids[[kk]])
+      # Each cell-unit pair's centered contribution to its cell estimate
+      # is (psi_{k,i} - tau_k) / n_k; aggregated contribution to theta is
+      # w[j] times this.
+      contrib <- w[j] * (psi_k - per_cell$estimate[kk]) / n_k
+      h[ids_k] <- h[ids_k] + contrib
+    }
+    se_avg <- sqrt(sum(h^2))
+    z      <- qnorm(1 - alpha / 2)
     list(label = label, estimate = est_avg, se = se_avg,
          ci = est_avg + c(-1, 1) * z * se_avg,
          n_cells = length(idx))

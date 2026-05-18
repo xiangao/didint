@@ -56,6 +56,9 @@
   pi0g_hat <- predict(fit_pi0, newdata = Z, type = "response")
 
   # Optional PS trim on all three propensities (Xu 2026 uses 0.01).
+  # Track which input rows survive so callers can align the returned
+  # influence function back to their original sample.
+  keep_idx <- seq_along(W)
   n_dropped <- 0L
   if (!is.null(trim)) {
     keep <- p_hat    > trim & p_hat    < (1 - trim) &
@@ -63,6 +66,7 @@
             pi0g_hat > trim & pi0g_hat < (1 - trim)
     n_dropped <- sum(!keep)
     if (n_dropped > 0) {
+      keep_idx <- keep_idx[keep]
       W <- W[keep]; Ig <- Ig[keep]; dY <- dY[keep]
       Z <- Z[keep, , drop = FALSE]
       p_hat <- p_hat[keep]
@@ -105,16 +109,26 @@
   if (!is.null(coords) && !is.null(cutoff)) {
     if (!requireNamespace("conleyreg", quietly = TRUE))
       stop(".dr_atte: install package 'conleyreg' for spatial-HAC SEs")
+    # conleyreg requires at least one RHS variable; we regress the
+    # influence-function values on a constant column (with intercept = FALSE)
+    # to recover the spatial-HAC variance of the mean.
     df_hac <- data.frame(if_emp = if_emp,
+                         const  = 1,
                          x_lon  = coords[, 1],
                          x_lat  = coords[, 2])
-    fit_hac <- conleyreg::conleyreg(
-      formula  = if_emp ~ 1, data = df_hac,
+    vcov_mat <- conleyreg::conleyreg(
+      formula  = if_emp ~ const, data = df_hac,
       dist_cutoff = cutoff,
       lat = "x_lat", lon = "x_lon", kernel = "bartlett",
-      dist_comp = if (dist_fn == "spherical") "spherical" else "planar"
+      intercept = FALSE,
+      dist_comp = if (dist_fn == "spherical") "spherical" else "planar",
+      vcov = TRUE, verbose = FALSE
     )
-    se <- sqrt(diag(fit_hac$vcov)[1] / n)
+    # conleyreg with vcov = TRUE returns the variance-covariance matrix
+    # directly. The coefficient on 'const' equals the mean of if_emp;
+    # its sampling variance estimated by conleyreg already corresponds
+    # to the spatial-HAC variance of that mean.
+    se <- sqrt(as.numeric(vcov_mat[1, 1]))
   } else {
     se <- sqrt(sum(if_emp^2) / n^2)
   }
@@ -125,6 +139,7 @@
     se        = se,
     ci        = est + c(-1, 1) * z * se,
     influence = if_emp,
+    keep_idx  = keep_idx,           # input rows surviving the trim
     n_total   = n,
     n_treated = sum(W == 1),
     n_control = sum(W == 0),
