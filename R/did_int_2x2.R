@@ -89,8 +89,9 @@ did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
   if (any(!(W %in% c(0, 1))))
     stop("did_int_2x2: treat must be 0/1")
 
-  # Early mask check: the DATT averages over units with G = g; if none exist,
-  # nothing is identified. Catch before fitting outcome regressions on 0 obs.
+  # The DR formula requires fitting outcome regressions on the {W=1, G=g}
+  # and {W=0, G=g} subsets; both must be non-empty (otherwise lm() errors).
+  # The estimand itself averages over the full population D_M.
   if (!any(Ig == 1))
     stop("did_int_2x2: no units with exposure level g; nothing to estimate")
   if (!any(W == 1 & Ig == 1))
@@ -147,27 +148,23 @@ did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
   m1_hat <- predict(fit_m1, newdata = Z)
   m0_hat <- predict(fit_m0, newdata = Z)
 
-  # --- DR influence-function contributions ---------------------------------
-  # Mask: we form the DATT averaging over units with G_i = g (estimand restricts
-  # the conditioning event to the {G=g} stratum). The early-exit check above
-  # has already verified the mask is non-empty.
-  mask <- Ig == 1
-
-  # IF components (one per unit; zero outside mask), aligned to full N
+  # --- DR plug-in (Xu 2026, eq. 5; 2x2 case) -------------------------------
+  # The estimand is (1/|S_M|) sum_i E[ y_i(1, g) - y_i(0, g) | z_i, W=1, G=g ].
+  # In the 2x2 case S_M = D_M, so the average is over ALL units.
+  # The two IPW terms carry 1{G_i = g} indicators (only contribute when
+  # exposure is g). The regression term Delta_m1g(z) - Delta_m0g(z) is
+  # evaluated at every unit's z and contributes to all i; it is NOT
+  # multiplied by 1{G_i = g}.
   if_treated <- W * Ig / (p_hat * pi1g_hat) * (dY - m1_hat)
   if_control <- (1 - W) * Ig / ((1 - p_hat) * pi0g_hat) * (dY - m0_hat)
-  if_reg     <- Ig * (m1_hat - m0_hat)
+  if_reg     <- m1_hat - m0_hat
 
-  psi <- if_treated - if_control + if_reg              # length n
-  N   <- sum(mask)                                     # |{G = g}|
-  est <- sum(psi) / N                                  # DR estimate
+  psi <- if_treated - if_control + if_reg              # length n = |S_M|
+  n   <- length(W)
+  est <- sum(psi) / n                                  # DR estimate
 
-  # Empirical influence function: psi_i / Pr(G=g)  minus  est
-  # In practice we use psi/N - est * (mask/N) so that mean(if_emp) = 0.
-  if_emp <- (psi - est * Ig) / (N / length(W))         # scale to per-unit
-  # The variance formula: Var(est) = (1/n^2) * sum(if^2) for iid;
-  # Conley HAC otherwise.
-  n <- length(W)
+  # IF for an arithmetic mean: phi_i = psi_i - est. Var(est) = (1/n^2) sum phi^2.
+  if_emp <- psi - est
 
   # --- standard error: iid or spatial Conley HAC ---------------------------
   if (!is.null(coords) && !is.null(cutoff)) {
@@ -202,7 +199,7 @@ did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
       n_control   = sum(W == 0),
       n_total     = n,
       n_dropped   = n_dropped,
-      n_at_g      = N,
+      n_at_g      = sum(Ig == 1),
       exposure_g  = g,
       influence   = if_emp,
       models      = list(p = fit_p, pi1 = fit_pi1, pi0 = fit_pi0,
@@ -217,8 +214,10 @@ did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
 print.didint_2x2 <- function(x, digits = 4, ...) {
   cat("Doubly robust DATT (Xu 2023, 2x2 case)\n")
   cat(sprintf("  Exposure level g = %s\n", format(x$exposure_g)))
-  cat(sprintf("  N treated = %d, N control = %d, N at exposure g = %d\n",
-              x$n_treated, x$n_control, x$n_at_g))
+  cat(sprintf("  N total = %d (treated %d, control %d), of which %d at exposure g\n",
+              x$n_total, x$n_treated, x$n_control, x$n_at_g))
+  if (!is.null(x$n_dropped) && x$n_dropped > 0)
+    cat(sprintf("  Dropped by PS trim: %d\n", x$n_dropped))
   cat(sprintf("  DATT     = %.*f\n", digits, x$estimate))
   cat(sprintf("  SE       = %.*f\n", digits, x$se))
   cat(sprintf("  95%% CI  = [%.*f, %.*f]\n",
