@@ -26,5 +26,5 @@ Suggests:
     ggplot2
 VignetteBuilder: knitr
 Config/testthat/edition: 3
-URL: https://github.com/xiangao/didint
+URL: https://xiangao.github.io/didint/, https://github.com/xiangao/didint
 BugReports: https://github.com/xiangao/didint/issues
