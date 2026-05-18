@@ -1,0 +1,25 @@
+Package: didint
+Title: Difference-in-Differences with Spatial Interference
+Version: 0.0.1
+Authors@R: person("Xiang", "Ao", email = "xiangao@gmail.com", role = c("aut", "cre"))
+Description: Doubly robust estimators for difference-in-differences when potential outcomes
+    depend on neighbours' treatment status (spatial interference). Implements the 2x2 case
+    of Xu (2023) and the dynamic / staggered extensions of Xu (2026), with spatial-HAC
+    standard errors based on unit locations.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends:
+    R (>= 4.1)
+Imports:
+    stats
+Suggests:
+    testthat (>= 3.0.0),
+    conleyreg,
+    knitr,
+    rmarkdown
+Config/testthat/edition: 3
+URL: https://github.com/xiangao/didint
+BugReports: https://github.com/xiangao/didint/issues
