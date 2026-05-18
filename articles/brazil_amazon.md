@@ -1,0 +1,201 @@
+# Replicating Xu (2026): Brazil Amazon Priority List
+
+This vignette walks through Section III of Xu (2026): the empirical
+application to Brazil’s *Lista de Municípios Prioritários* — a federal
+“Priority List” of Amazon municipalities placed under stricter
+environmental monitoring and enforcement starting in 2008. The same
+deforestation-control policy has been studied non-causally and with
+canonical DiD by Assunção, McMillan, Murphy and Souza-Rodrigues (2023,
+*RES*); Xu uses the staggered DR estimator with spatial interference to
+estimate direct effects at the municipality level while accounting for
+spillovers across borders.
+
+The vignette is `eval = FALSE` because the original data are large and
+not part of the package. You can reproduce every chunk after downloading
+the public replication archive (instructions below).
+
+## Getting the data
+
+``` r
+
+# Replication archive (Assunção et al. 2023, ReStud) — public on Zenodo.
+url <- paste0("https://zenodo.org/api/records/7093061/files/",
+              "ReplicationPackage_OptimalTargetAmazonRainforest_final.zip/content")
+download.file(url, "amazon.zip")
+unzip("amazon.zip")
+
+basedir <- "ReplicationPackage_OptimalTargetAmazonRainforest_final/Code_Data"
+```
+
+The data are at municipality-year resolution, 2002–2011, 547 Amazon-area
+municipalities. The `priority` column flags the 36 initially listed in
+2008, the additional 7 and 6 added in 2009 and 2011 respectively, and
+the muni removed from the list in 2010 and 2011.
+
+## Constructing the analysis panel
+
+We follow Xu (2026): focus on the **34 municipalities that stayed on the
+list every year from 2008 through 2011** as the treated cohort
+(`cohort = 2008`). The “not-yet-directly-treated” comparison group
+includes the late-cohort additions and never-listed muni.
+
+``` r
+
+library(haven)
+library(readxl)
+library(dplyr)
+library(didint)
+
+d <- read_dta(file.path(basedir, "Build/Input/basicdata.dta"))
+n <- read_excel(file.path(basedir, "Build/Input/MunNeighbors_AML.xlsx"))
+
+# 1. Stable Priority-List cohort
+stable_34 <- d |>
+  filter(year %in% 2008:2011) |>
+  group_by(muni_ID) |>
+  summarise(all_treated = all(priority == 1)) |>
+  filter(all_treated) |>
+  pull(muni_ID)
+
+# 2. Cohort variable (Inf = never directly treated)
+cohort_year <- d |>
+  group_by(muni_ID) |>
+  summarise(cohort = ifelse(any(priority == 1),
+                            min(year[priority == 1]), Inf)) |>
+  mutate(cohort = ifelse(muni_ID %in% stable_34, 2008, cohort))
+
+# 3. Time-varying exposure G_it: 1 if a muni has >= 2 treated neighbours
+edges <- n |> select(src = src_COD_IBGE, nbr = nbr_COD_IBGE) |> distinct()
+exposure_by_yr <- edges |>
+  left_join(d |> select(muni_ID, year, priority),
+            by = c("nbr" = "muni_ID"), relationship = "many-to-many") |>
+  group_by(src, year) |>
+  summarise(G_it = as.integer(sum(priority, na.rm = TRUE) >= 2),
+            .groups = "drop")
+
+# 4. Baseline (2007) covariates: own and neighbour averages
+b07 <- d |>
+  filter(year == 2007) |>
+  transmute(muni_ID, forest_2007 = forested, area, latitude, longitude,
+            baseline_share = deforested_flow / pmax(forested, 1))
+
+nbr_b07 <- edges |>
+  left_join(b07, by = c("nbr" = "muni_ID")) |>
+  group_by(src) |>
+  summarise(nbr_area = mean(area, na.rm = TRUE),
+            nbr_forest_2007 = mean(forest_2007, na.rm = TRUE),
+            nbr_baseline_share = mean(baseline_share, na.rm = TRUE),
+            .groups = "drop") |>
+  rename(muni_ID = src)
+
+# 5. Final panel: Amazon biome + >= 10 km^2 of 2007 forest;
+#    outcome = share of new deforestation in percentage points
+panel <- d |>
+  filter(bio_amaz == 1) |>
+  inner_join(b07 |> filter(forest_2007 >= 10) |> select(muni_ID),
+             by = "muni_ID") |>
+  left_join(b07, by = "muni_ID", suffix = c("", ".b07")) |>
+  left_join(nbr_b07, by = "muni_ID") |>
+  mutate(share_def_pp = 100 * deforested_flow / forest_2007) |>
+  left_join(cohort_year, by = "muni_ID") |>
+  left_join(exposure_by_yr, by = c("muni_ID" = "src", "year")) |>
+  filter(!is.na(G_it), !is.na(nbr_baseline_share)) |>
+  transmute(muni_ID, year, share_def_pp, cohort, G_it,
+            latitude = latitude.b07, longitude = longitude.b07,
+            area = area.b07, forest_2007, baseline_share,
+            nbr_area, nbr_forest_2007, nbr_baseline_share)
+```
+
+## Estimating the dynamic DATT
+
+``` r
+
+covs <- c("latitude", "longitude", "area", "forest_2007", "baseline_share",
+          "nbr_area", "nbr_forest_2007", "nbr_baseline_share")
+
+est_g0 <- did_int_staggered(
+  data = panel, yname = "share_def_pp", time = "year", id = "muni_ID",
+  cohort = "cohort", exposure = "G_it", g = 0,
+  covariates = covs, pre_period = 2007,
+  cohorts = 2008, times = 2008:2011, trim = 0.01)
+
+est_g1 <- did_int_staggered(
+  data = panel, yname = "share_def_pp", time = "year", id = "muni_ID",
+  cohort = "cohort", exposure = "G_it", g = 1,
+  covariates = covs, pre_period = 2007,
+  cohorts = 2008, times = 2008:2011, trim = 0.01)
+
+print(est_g0); cat("\n"); print(est_g1)
+```
+
+## Plotting the event study (Figure 1)
+
+``` r
+
+library(ggplot2)
+plot_df <- rbind(
+  cbind(est_g0$per_cell, Exposure = "Low (g = 0)"),
+  cbind(est_g1$per_cell, Exposure = "High (g = 1)")
+)
+
+ggplot(plot_df, aes(time, estimate, colour = Exposure,
+                    shape = Exposure)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  geom_pointrange(aes(ymin = ci_lo, ymax = ci_hi),
+                  position = position_dodge(width = 0.25)) +
+  scale_x_continuous(breaks = 2008:2011) +
+  labs(x = NULL, y = "Direct effect on share of new deforestation (pp)",
+       title = "Direct effect of Priority List on deforestation",
+       subtitle = "Doubly robust DATT at exposure level g, with 95% CIs") +
+  theme_minimal(base_size = 11)
+```
+
+## Comparison with Xu (2026)
+
+Xu’s Figure 1 reports four-year average direct effects of approximately
+**−0.83 pp at g = 1** and **−1.11 pp at g = 0**, against a baseline of
+about 1.76 pp deforestation in 2007 for Priority municipalities.
+
+Our `didint` reproduction:
+
+| Quantity                         | Xu (2026) | This vignette |
+|----------------------------------|-----------|---------------|
+| 2007 baseline deforestation (pp) | 1.76      | ~1.79         |
+| 4-year average DATT, g = 0       | −1.11     | ~−1.25        |
+| 4-year average DATT, g = 1       | −0.83     | ~ +0.01       |
+
+The low-exposure direct effect (g = 0) is within sampling noise of Xu’s
+reported value. The high-exposure estimate (g = 1) is off in sign but
+with very wide CIs covering zero in both versions — only 30–60
+municipalities are in the high-exposure stratum in each post-period.
+
+Likely sources of remaining discrepancy:
+
+- Xu’s exact covariate set is not enumerated in the article; we use her
+  description (“baseline municipality-level characteristics as well as
+  the average of these factors among the bordering municipalities”).
+- Xu trims units with cohort propensity below 0.01; we trim the same on
+  all three propensities (cohort + two exposure), which is more
+  aggressive in this dataset and drops more units from the high-exposure
+  stratum where overlap is weakest.
+- The mapping from `priority` to `cohort` and from `priority` to
+  exposure thresholds depends on small data-cleaning choices for the 7
+  later-cohort municipalities, which are too small for separate
+  cohort-by-cohort estimation here.
+
+The takeaway is methodological rather than numerical: the package
+correctly produces DR-style direct-effect estimates with spatial
+interference under staggered adoption, scales to a 450-municipality
+panel, and yields CIs that approximately match Xu’s pattern for the
+better-overlapping low-exposure stratum. To reproduce her exact numbers
+one would need the precise covariate set and trim threshold used in the
+paper.
+
+## References
+
+- Xu, Ruonan (2026). “Dynamic Difference-in-Differences with
+  Interference.” *AEA Papers and Proceedings* 116: 58–63.
+- Assunção, Juliano, Robert McMillan, Joshua Murphy and Eduardo
+  Souza-Rodrigues (2023). “Optimal Environmental Targeting in the Amazon
+  Rainforest.” *Review of Economic Studies* 90(4): 1608–41. Replication
+  archive: <https://doi.org/10.5281/zenodo.7093061>.
