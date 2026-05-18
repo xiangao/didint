@@ -10,7 +10,6 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
 Depends:
     R (>= 4.1)
 Imports:
@@ -28,3 +27,4 @@ VignetteBuilder: knitr
 Config/testthat/edition: 3
 URL: https://xiangao.github.io/didint/, https://github.com/xiangao/didint
 BugReports: https://github.com/xiangao/didint/issues
+Config/roxygen2/version: 8.0.0
