@@ -43,6 +43,10 @@
 #'   units as `coords` (km if coords are lon/lat with `dist_fn = "spherical"`).
 #' @param dist_fn Either `"spherical"` (great-circle, expects lon/lat) or
 #'   `"euclidean"`. Default `"spherical"`.
+#' @param trim Optional propensity-score trimming threshold. If supplied,
+#'   units with `p_hat <= trim` or `p_hat >= 1 - trim` are dropped before
+#'   computing the DR estimate. Matches the trim at 0.01 used by Xu (2026)
+#'   in the Brazil application. Default `NULL` (no trimming).
 #' @param alpha Significance level for the CI; default 0.05.
 #'
 #' @return A list of class `"didint_2x2"` with:
@@ -67,6 +71,7 @@
 did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
                         covariates, coords = NULL, cutoff = NULL,
                         dist_fn = c("spherical", "euclidean"),
+                        trim = NULL,
                         alpha = 0.05) {
 
   dist_fn <- match.arg(dist_fn)
@@ -113,6 +118,24 @@ did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
                  family = binomial())
   pi1g_hat <- predict(fit_pi1, newdata = Z, type = "response")
   pi0g_hat <- predict(fit_pi0, newdata = Z, type = "response")
+
+  # Optional propensity-score trim (Xu 2026 uses 0.01 in the Brazil example).
+  # Drop units whose cohort *or* exposure propensities are in the tails;
+  # extreme exposure propensities are the more common source of heavy-tailed
+  # DR estimates in our simulation experience.
+  n_dropped <- 0L
+  if (!is.null(trim)) {
+    keep <- p_hat    > trim & p_hat    < (1 - trim) &
+            pi1g_hat > trim & pi1g_hat < (1 - trim) &
+            pi0g_hat > trim & pi0g_hat < (1 - trim)
+    n_dropped <- sum(!keep)
+    if (n_dropped > 0) {
+      W <- W[keep]; Gv <- Gv[keep]; dY <- dY[keep]
+      Z <- Z[keep, , drop = FALSE]; Ig <- Ig[keep]
+      p_hat <- p_hat[keep]; pi1g_hat <- pi1g_hat[keep]; pi0g_hat <- pi0g_hat[keep]
+      if (!is.null(coords)) coords <- coords[keep, , drop = FALSE]
+    }
+  }
 
   # outcome change regressions on (W=1, G=g) and (W=0, G=g) subsets
   fit_m1 <- lm(as.formula(paste("dY ~", rhs)),
@@ -175,9 +198,10 @@ did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
       estimate    = est,
       se          = se,
       ci          = ci,
-      n_treated   = length(treated_idx),
-      n_control   = length(control_idx),
+      n_treated   = sum(W == 1),
+      n_control   = sum(W == 0),
       n_total     = n,
+      n_dropped   = n_dropped,
       n_at_g      = N,
       exposure_g  = g,
       influence   = if_emp,
