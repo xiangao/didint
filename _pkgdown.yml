@@ -1,0 +1,34 @@
+url: https://xiangao.github.io/didint/
+
+template:
+  bootstrap: 5
+
+navbar:
+  structure:
+    left:  [intro, reference, articles, news]
+    right: [search, github]
+
+reference:
+  - title: 2×2 base case (Xu 2023)
+    contents:
+      - did_int_2x2
+  - title: Dynamic event study (Xu 2026 §I)
+    contents:
+      - did_int_dynamic
+  - title: Staggered adoption (Xu 2026 §II)
+    contents:
+      - did_int_staggered
+
+articles:
+  - title: Vignettes
+    contents:
+      - brazil_amazon
+
+home:
+  links:
+    - text: Julia port
+      href: https://github.com/xiangao/DidInterference.jl
+    - text: Xu (2023) arXiv
+      href: https://arxiv.org/abs/2306.12003
+    - text: Xu (2026) AEA P&P
+      href: https://doi.org/10.1257/pandp.20261108
