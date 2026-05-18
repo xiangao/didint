@@ -89,123 +89,13 @@ did_int_2x2 <- function(data, yname, yname_pre, treat, exposure, g,
   if (any(!(W %in% c(0, 1))))
     stop("did_int_2x2: treat must be 0/1")
 
-  # The DR formula requires fitting outcome regressions on the {W=1, G=g}
-  # and {W=0, G=g} subsets; both must be non-empty (otherwise lm() errors).
-  # The estimand itself averages over the full population D_M.
-  if (!any(Ig == 1))
-    stop("did_int_2x2: no units with exposure level g; nothing to estimate")
-  if (!any(W == 1 & Ig == 1))
-    stop("did_int_2x2: no treated units at exposure level g")
-  if (!any(W == 0 & Ig == 1))
-    stop("did_int_2x2: no control units at exposure level g")
-
-  # --- fit working models --------------------------------------------------
-  rhs <- paste(c("1", covariates), collapse = " + ")
-
-  # cohort propensity p(z) = P(W=1 | z)
-  fml_p <- as.formula(paste("W ~", rhs))
-  fit_p <- glm(fml_p, data = cbind(W = W, Z), family = binomial())
-  p_hat <- predict(fit_p, type = "response")
-
-  # exposure propensity among treated, among controls
-  treated_idx <- which(W == 1)
-  control_idx <- which(W == 0)
-
-  fit_pi1 <- glm(as.formula(paste("Ig ~", rhs)),
-                 data = cbind(Ig = Ig[treated_idx], Z[treated_idx, , drop = FALSE]),
-                 family = binomial())
-  fit_pi0 <- glm(as.formula(paste("Ig ~", rhs)),
-                 data = cbind(Ig = Ig[control_idx], Z[control_idx, , drop = FALSE]),
-                 family = binomial())
-  pi1g_hat <- predict(fit_pi1, newdata = Z, type = "response")
-  pi0g_hat <- predict(fit_pi0, newdata = Z, type = "response")
-
-  # Optional propensity-score trim (Xu 2026 uses 0.01 in the Brazil example).
-  # Drop units whose cohort *or* exposure propensities are in the tails;
-  # extreme exposure propensities are the more common source of heavy-tailed
-  # DR estimates in our simulation experience.
-  n_dropped <- 0L
-  if (!is.null(trim)) {
-    keep <- p_hat    > trim & p_hat    < (1 - trim) &
-            pi1g_hat > trim & pi1g_hat < (1 - trim) &
-            pi0g_hat > trim & pi0g_hat < (1 - trim)
-    n_dropped <- sum(!keep)
-    if (n_dropped > 0) {
-      W <- W[keep]; Gv <- Gv[keep]; dY <- dY[keep]
-      Z <- Z[keep, , drop = FALSE]; Ig <- Ig[keep]
-      p_hat <- p_hat[keep]; pi1g_hat <- pi1g_hat[keep]; pi0g_hat <- pi0g_hat[keep]
-      if (!is.null(coords)) coords <- coords[keep, , drop = FALSE]
-    }
-  }
-
-  # outcome change regressions on (W=1, G=g) and (W=0, G=g) subsets
-  fit_m1 <- lm(as.formula(paste("dY ~", rhs)),
-               data = cbind(dY = dY[W == 1 & Ig == 1],
-                            Z[W == 1 & Ig == 1, , drop = FALSE]))
-  fit_m0 <- lm(as.formula(paste("dY ~", rhs)),
-               data = cbind(dY = dY[W == 0 & Ig == 1],
-                            Z[W == 0 & Ig == 1, , drop = FALSE]))
-  m1_hat <- predict(fit_m1, newdata = Z)
-  m0_hat <- predict(fit_m0, newdata = Z)
-
-  # --- DR plug-in (Xu 2026, eq. 5; 2x2 case) -------------------------------
-  # The estimand is (1/|S_M|) sum_i E[ y_i(1, g) - y_i(0, g) | z_i, W=1, G=g ].
-  # In the 2x2 case S_M = D_M, so the average is over ALL units.
-  # The two IPW terms carry 1{G_i = g} indicators (only contribute when
-  # exposure is g). The regression term Delta_m1g(z) - Delta_m0g(z) is
-  # evaluated at every unit's z and contributes to all i; it is NOT
-  # multiplied by 1{G_i = g}.
-  if_treated <- W * Ig / (p_hat * pi1g_hat) * (dY - m1_hat)
-  if_control <- (1 - W) * Ig / ((1 - p_hat) * pi0g_hat) * (dY - m0_hat)
-  if_reg     <- m1_hat - m0_hat
-
-  psi <- if_treated - if_control + if_reg              # length n = |S_M|
-  n   <- length(W)
-  est <- sum(psi) / n                                  # DR estimate
-
-  # IF for an arithmetic mean: phi_i = psi_i - est. Var(est) = (1/n^2) sum phi^2.
-  if_emp <- psi - est
-
-  # --- standard error: iid or spatial Conley HAC ---------------------------
-  if (!is.null(coords) && !is.null(cutoff)) {
-    if (!requireNamespace("conleyreg", quietly = TRUE))
-      stop("did_int_2x2: install package 'conleyreg' for spatial-HAC SEs")
-    # Regress IF on a constant; the (1,1) entry of the Conley vcov is the SE^2
-    df_hac <- data.frame(if_emp = if_emp,
-                         x_lon  = coords[, 1],
-                         x_lat  = coords[, 2])
-    fit_hac <- conleyreg::conleyreg(
-      formula  = if_emp ~ 1,
-      data     = df_hac,
-      dist_cutoff = cutoff,
-      lat = "x_lat", lon = "x_lon",
-      kernel = "bartlett",
-      dist_comp = if (dist_fn == "spherical") "spherical" else "planar"
-    )
-    se <- sqrt(diag(fit_hac$vcov)[1] / n)
-  } else {
-    se <- sqrt(sum(if_emp^2) / n^2)
-  }
-
-  z <- qnorm(1 - alpha / 2)
-  ci <- est + c(-1, 1) * z * se
+  # Delegate the DR machinery to .dr_atte (shared with did_int_staggered).
+  out <- .dr_atte(W = W, Ig = Ig, Z = Z, dY = dY,
+                  coords = coords, cutoff = cutoff,
+                  dist_fn = dist_fn, trim = trim, alpha = alpha)
 
   structure(
-    list(
-      estimate    = est,
-      se          = se,
-      ci          = ci,
-      n_treated   = sum(W == 1),
-      n_control   = sum(W == 0),
-      n_total     = n,
-      n_dropped   = n_dropped,
-      n_at_g      = sum(Ig == 1),
-      exposure_g  = g,
-      influence   = if_emp,
-      models      = list(p = fit_p, pi1 = fit_pi1, pi0 = fit_pi0,
-                         m1 = fit_m1, m0 = fit_m0),
-      call        = call
-    ),
+    c(out, list(exposure_g = g, call = call)),
     class = "didint_2x2"
   )
 }

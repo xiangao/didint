@@ -50,6 +50,6 @@ test_that("did_int_2x2 errors on missing exposure level", {
   df$G[df$G == 1] <- 0  # eliminate g = 1
   expect_error(
     did_int_2x2(df, "Y_post", "Y_pre", "W", "G", g = 1, covariates = "z"),
-    "no units with exposure"
+    "no units with G = g"
   )
 })
