@@ -29,8 +29,11 @@ Full documentation: **<https://xiangao.github.io/didint/>**
 
 | Page | Description |
 |---|---|
-| [Reference](https://xiangao.github.io/didint/reference/index.html) | Full API: `did_int_2x2`, `did_int_dynamic`, `did_int_staggered` |
 | [Brazil Amazon Priority List](https://xiangao.github.io/didint/articles/brazil_amazon.html) | End-to-end replication of Xu (2026) Section III on the public Assunção-McMillan-Murphy-Souza-Rodrigues archive |
+| [`did_int_2x2()`](https://xiangao.github.io/didint/reference/did_int_2x2.html) | 2x2 base case (Xu 2023) |
+| [`did_int_dynamic()`](https://xiangao.github.io/didint/reference/did_int_dynamic.html) | Dynamic event study (Xu 2026 §I) |
+| [`did_int_staggered()`](https://xiangao.github.io/didint/reference/did_int_staggered.html) | Staggered adoption with joint-IF aggregation (Xu 2026 §II) |
+| [Reference index](https://xiangao.github.io/didint/reference/index.html) | All functions on one page |
 
 A Julia port with identical estimators is at [DidInterference.jl](https://github.com/xiangao/DidInterference.jl) (docs: <https://xiangao.github.io/DidInterference.jl/>).
 
