@@ -149,3 +149,34 @@ arXiv:2306.12003.
 
 Xu, Ruonan (2026). "Dynamic Difference-in-Differences with
 Interference." AEA Papers and Proceedings 116: 58–63.
+
+## Examples
+
+``` r
+# Simulate a small 2-period panel with binary direct + spillover effects.
+set.seed(1)
+N <- 600
+lon <- runif(N, 0, 10); lat <- runif(N, 0, 10)
+z   <- 0.3 * lon + 0.2 * lat + rnorm(N)
+W <- rbinom(N, 1, plogis(-0.5 + 0.6 * z))
+dij <- as.matrix(dist(cbind(lon, lat)))
+A <- (dij < 1.5) & (dij > 0)
+share <- (A %*% W) / pmax(rowSums(A), 1)
+G <- as.integer(share > median(share))
+Y_pre  <- 0.8 * z + rnorm(N)
+Y_post <- Y_pre + 0.2 * z + 1.5 * W + 0.5 * G * W + rnorm(N)
+df <- data.frame(W = W, G = G, z = z, Y_pre = Y_pre, Y_post = Y_post,
+                 lon = lon, lat = lat)
+
+# Doubly robust direct ATT at high exposure (g = 1); truth is 2.0
+res <- did_int_2x2(df, yname = "Y_post", yname_pre = "Y_pre",
+                   treat = "W", exposure = "G", g = 1,
+                   covariates = "z", trim = 0.01)
+print(res)
+#> Doubly robust DATT (Xu 2023, 2x2 case)
+#>   Exposure level g = 1
+#>   N total = 600 (treated 407, control 193), of which 300 at exposure g
+#>   DATT     = 1.8917
+#>   SE       = 0.1653
+#>   95% CI  = [1.5678, 2.2156]
+```

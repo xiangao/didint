@@ -132,3 +132,83 @@ Exposure is allowed to vary across periods (the column passed in
 
 [`did_int_2x2()`](https://xiangao.github.io/didint/reference/did_int_2x2.md),
 [`did_int_dynamic()`](https://xiangao.github.io/didint/reference/did_int_dynamic.md).
+
+## Examples
+
+``` r
+# 3 cohorts (t = 2, 3, 4) plus a never-treated group.
+set.seed(7)
+N <- 600; T <- 5
+lon <- runif(N, 0, 10); lat <- runif(N, 0, 10)
+z   <- 0.3 * lon + 0.2 * lat + rnorm(N)
+p_t <- plogis(-0.5 + 0.5 * z)
+is_t <- rbinom(N, 1, p_t) == 1
+cohort <- rep(Inf, N)
+cohort[is_t] <- sample(2:4, sum(is_t), replace = TRUE,
+                       prob = c(0.4, 0.4, 0.2))
+dij <- as.matrix(dist(cbind(lon, lat)))
+A   <- (dij < 1.5) & (dij > 0)
+deg <- pmax(rowSums(A), 1)
+rows <- vector("list", N * T)
+k <- 1L
+for (i in seq_len(N)) for (t in seq_len(T)) {
+  W_t <- as.integer(cohort[i] <= t)
+  share_t <- sum(A[i, ] * (cohort <= t)) / deg[i]
+  G_t <- as.integer(share_t > 0.3)
+  Y <- 0.8 * z[i] + 0.1 * t * z[i] + 1.5 * W_t + 0.5 * G_t * W_t + rnorm(1)
+  rows[[k]] <- data.frame(id = i, time = t, cohort = cohort[i],
+                          z = z[i], Y = Y, G = G_t)
+  k <- k + 1L
+}
+d <- do.call(rbind, rows)
+
+# DR DATT at high exposure (g = 1) across cohort-time cells
+res <- did_int_staggered(
+  d, yname = "Y", time = "time", id = "id",
+  cohort = "cohort", exposure = "G", g = 1, covariates = "z")
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+#> Warning: glm.fit: algorithm did not converge
+head(res$per_cell)
+#>   cohort time event_time estimate        se    ci_lo    ci_hi n_total n_at_g
+#> 1      2    2          0 2.137885 0.1785172 1.787997 2.487772     600    336
+#> 2      2    3          1 2.103313 0.1361382 1.836487 2.370139     452    452
+#> 3      2    4          2 2.426680 0.1534515 2.125920 2.727439     377    377
+#> 4      2    5          3 2.159710 0.1483221 1.869004 2.450416     377    377
+#> 5      3    3          0 2.020326 0.1469968 1.732218 2.308435     411    411
+#> 6      3    4          1 2.070073 0.1781373 1.720931 2.419216     336    336
+#>   n_dropped
+#> 1         0
+#> 2         0
+#> 3         0
+#> 4         0
+#> 5         0
+#> 6         0
+res$agg$simple   # joint-IF aggregate; truth is 2.0
+#> $label
+#> [1] "all cells"
+#> 
+#> $estimate
+#> [1] 2.140156
+#> 
+#> $se
+#> [1] 0.09898323
+#> 
+#> $ci
+#> [1] 1.946152 2.334159
+#> 
+#> $n_cells
+#> [1] 9
+#> 
+```
