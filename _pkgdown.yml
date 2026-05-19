@@ -10,12 +10,15 @@ navbar:
 
 reference:
   - title: 2×2 base case (Xu 2023)
+    desc: Click through for a runnable example.
     contents:
       - did_int_2x2
   - title: Dynamic event study (Xu 2026 §I)
+    desc: Click through for a runnable example.
     contents:
       - did_int_dynamic
   - title: Staggered adoption (Xu 2026 §II)
+    desc: Click through for a runnable example.
     contents:
       - did_int_staggered
 

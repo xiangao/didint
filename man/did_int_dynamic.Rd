@@ -66,6 +66,33 @@ the same treatment indicator and same exposure variable. The same
 parallel-trends assumption must hold for \emph{each} post-period
 separately (Assumption 1 of Xu 2026 applied to every \code{t >= c}).
 }
+\examples{
+# Common adoption, 4 post-periods. Same DGP as did_int_2x2() example
+# but with multiple post outcomes.
+set.seed(2)
+N <- 800; T_post <- 4
+lon <- runif(N, 0, 10); lat <- runif(N, 0, 10)
+z   <- 0.3 * lon + 0.2 * lat + rnorm(N)
+W <- rbinom(N, 1, plogis(-0.5 + 0.6 * z))
+dij <- as.matrix(dist(cbind(lon, lat)))
+A <- (dij < 1.5) & (dij > 0)
+share <- (A \%*\% W) / pmax(rowSums(A), 1)
+G <- as.integer(share > median(share))
+Y_pre <- 0.8 * z + rnorm(N)
+df <- data.frame(W = W, G = G, z = z, Y_pre = Y_pre,
+                 lon = lon, lat = lat)
+for (k in 1:T_post)
+  df[[paste0("Y_post_", k)]] <- Y_pre + 0.2 * k * z + 1.5 * W +
+                                 0.5 * G * W + rnorm(N)
+
+res <- did_int_dynamic(df, yname_pre = "Y_pre",
+                       ynames = paste0("Y_post_", 1:T_post),
+                       treat = "W", exposure = "G", g = 1,
+                       covariates = "z", trim = 0.01)
+res$per_period      # per-period direct ATTs
+res$agg$simple_avg  # cross-period average; truth is 2.0
+
+}
 \seealso{
 \code{\link[=did_int_2x2]{did_int_2x2()}} for the 2x2 building block.
 }

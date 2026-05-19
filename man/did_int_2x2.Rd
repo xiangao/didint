@@ -94,6 +94,29 @@ spatial inference, pass \code{coords} and \code{cutoff}; SEs are then computed
 via the Conley spatial-HAC variance on the influence-function vector
 (requires the \code{conleyreg} package).
 }
+\examples{
+# Simulate a small 2-period panel with binary direct + spillover effects.
+set.seed(1)
+N <- 600
+lon <- runif(N, 0, 10); lat <- runif(N, 0, 10)
+z   <- 0.3 * lon + 0.2 * lat + rnorm(N)
+W <- rbinom(N, 1, plogis(-0.5 + 0.6 * z))
+dij <- as.matrix(dist(cbind(lon, lat)))
+A <- (dij < 1.5) & (dij > 0)
+share <- (A \%*\% W) / pmax(rowSums(A), 1)
+G <- as.integer(share > median(share))
+Y_pre  <- 0.8 * z + rnorm(N)
+Y_post <- Y_pre + 0.2 * z + 1.5 * W + 0.5 * G * W + rnorm(N)
+df <- data.frame(W = W, G = G, z = z, Y_pre = Y_pre, Y_post = Y_post,
+                 lon = lon, lat = lat)
+
+# Doubly robust direct ATT at high exposure (g = 1); truth is 2.0
+res <- did_int_2x2(df, yname = "Y_post", yname_pre = "Y_pre",
+                   treat = "W", exposure = "G", g = 1,
+                   covariates = "z", trim = 0.01)
+print(res)
+
+}
 \references{
 Xu, Ruonan (2023). "Difference-in-Differences with Interference."
 arXiv:2306.12003.

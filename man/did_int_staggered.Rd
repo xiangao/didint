@@ -94,6 +94,41 @@ For each cell \verb{(c, t)}:
 Exposure is allowed to vary across periods (the column passed in
 \code{exposure} should hold the time-varying \code{G_it}).
 }
+\examples{
+# 3 cohorts (t = 2, 3, 4) plus a never-treated group.
+set.seed(7)
+N <- 600; T <- 5
+lon <- runif(N, 0, 10); lat <- runif(N, 0, 10)
+z   <- 0.3 * lon + 0.2 * lat + rnorm(N)
+p_t <- plogis(-0.5 + 0.5 * z)
+is_t <- rbinom(N, 1, p_t) == 1
+cohort <- rep(Inf, N)
+cohort[is_t] <- sample(2:4, sum(is_t), replace = TRUE,
+                       prob = c(0.4, 0.4, 0.2))
+dij <- as.matrix(dist(cbind(lon, lat)))
+A   <- (dij < 1.5) & (dij > 0)
+deg <- pmax(rowSums(A), 1)
+rows <- vector("list", N * T)
+k <- 1L
+for (i in seq_len(N)) for (t in seq_len(T)) {
+  W_t <- as.integer(cohort[i] <= t)
+  share_t <- sum(A[i, ] * (cohort <= t)) / deg[i]
+  G_t <- as.integer(share_t > 0.3)
+  Y <- 0.8 * z[i] + 0.1 * t * z[i] + 1.5 * W_t + 0.5 * G_t * W_t + rnorm(1)
+  rows[[k]] <- data.frame(id = i, time = t, cohort = cohort[i],
+                          z = z[i], Y = Y, G = G_t)
+  k <- k + 1L
+}
+d <- do.call(rbind, rows)
+
+# DR DATT at high exposure (g = 1) across cohort-time cells
+res <- did_int_staggered(
+  d, yname = "Y", time = "time", id = "id",
+  cohort = "cohort", exposure = "G", g = 1, covariates = "z")
+head(res$per_cell)
+res$agg$simple   # joint-IF aggregate; truth is 2.0
+
+}
 \seealso{
 \code{\link[=did_int_2x2]{did_int_2x2()}}, \code{\link[=did_int_dynamic]{did_int_dynamic()}}.
 }
