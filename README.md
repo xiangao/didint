@@ -2,11 +2,15 @@
 
 [![pkgdown](https://img.shields.io/badge/pkgdown-site-blue.svg)](https://xiangao.github.io/didint/)
 
-Doubly robust difference-in-differences with spatial interference, following Xu (2023, 2026).
+`didint` implements difference-in-differences estimators with spatial
+interference, following Xu (2023, 2026).
 
 ## What this package does
 
-Standard DiD assumes one unit's outcome doesn't depend on another's treatment. When that's wrong — a treated municipality affecting its neighbours, a vaccine reducing transmission across the social network — the canonical DiD estimand loses its causal interpretation.
+Standard DiD assumes one unit's outcome does not depend on another unit's
+treatment. That is often too strong for spatial policies. A treated
+municipality can affect nearby municipalities, so the estimand has to say what
+exposure level is being compared.
 
 `didint` implements the doubly robust estimators of Ruonan Xu:
 
