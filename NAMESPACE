@@ -6,3 +6,16 @@ S3method(print,didint_staggered)
 export(did_int_2x2)
 export(did_int_dynamic)
 export(did_int_staggered)
+importFrom(stats,
+  as.formula,
+  binomial,
+  glm,
+  lm,
+  median,
+  plogis,
+  predict,
+  qnorm,
+  rbinom,
+  rnorm,
+  runif
+)

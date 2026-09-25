@@ -1,0 +1,4 @@
+^\.github$
+^docs$
+^_pkgdown\.yml$
+^CLAUDE\.md$
